@@ -3,9 +3,12 @@
 #include <iostream>
 #include <limits>
 #include <math.h>
+#include <ostream>
 #include <queue>
 #include <set>
 #include <sstream>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 using namespace std;
@@ -89,95 +92,164 @@ struct Connection {
         arrival_time(arrival_time_) {}
 };
 
+struct PairHash {
+  template <typename T1, typename T2>
+  std::size_t operator()(const std::pair<T1, T2> &pair) const {
+    auto hash1 = std::hash<T1>{}(pair.first);
+    auto hash2 = std::hash<T2>{}(pair.second);
+    return hash1 ^ (hash2 << 1); // A simple combination of the two hashes
+  }
+};
+
 class RAPTOR {
 public:
-  // Compute for every k a nondominated journey
-  // to a target stop pt with minimum arrival time having
-  // at most k trips.
   Solution getSolutionWithRaptor(const Query &query) {
-    StopID source = query.source;
-    StopID target = query.target;
+    StopID source = _original_stopid_to_internal_id[query.source];
+    StopID target = _original_stopid_to_internal_id[query.target];
     int departure_time = query.departure_time;
 
-    // Maximum number of trips
-    int k = 3;
+    int k = _stops.size(); // maximum number of trips
 
-    // Initialization of our algorithm
-    vector<vector<int>> departure_times_container;
-    vector<int> earliest_known_arrival_time(_stops.size(),
-                                            std::numeric_limits<int>::max());
-    vector<bool> visited(_stops.size(), false);
+    vector<pair<int, int>> result;
+    vector<vector<int>> arrival_times_container(
+        k, vector<int>(_stops.size(), std::numeric_limits<int>::max()));
+    vector<int> earliest_arrival_time(_stops.size(),
+                                      std::numeric_limits<int>::max());
+    vector<bool> marked(_stops.size(), false);
 
-    for (int i = 0; i < k; i++) {
-      // Departure times for every stop with at most k trips initialized as inf
-      vector<int> departure_times(_stops.size(),
-                                  std::numeric_limits<int>::max());
-      departure_times_container.push_back(departure_times);
+    arrival_times_container[0][source] = departure_time;
+    earliest_arrival_time[source] = departure_time;
+
+    marked[source] = true; // Mark the source stop as visited
+
+    if (source == target) {
+      result.push_back(make_pair(0, departure_time));
     }
 
-    vector<int> earliest_known_arrival_time(_stops.size(),
-                                            std::numeric_limits<int>::max());
+    for (int i = 1; i <= k; i++) {
+      std::unordered_set<pair<RouteID, int>, PairHash> q;
 
-    departure_times_container[0][source] = departure_time;
-    earliest_known_arrival_time[source] = departure_time;
-
-    vector<bool> visited(_stops.size(), false);
-
-    // k rounds
-    for (int i = 0; i < k; i++) {
-      // PQ utilizing a min heap
-      // priority_queue<int, vector<int>, greater<int>> pq;
-      std::set<pair<RouteID, StopID>> q;
-      // for all marked stops
-      for (StopID stop = 0; stop < _stops.size(); stop++) {
-        if (visited[stop] == false) {
+      // for all marked stops p do
+      for (size_t p = 0; p < _stops.size(); p++) {
+        if (!marked[p])
           continue;
+
+        // for all routes serving p do
+        for (const auto &route_and_position :
+             _routes_and_position_of_stop_per_stop[p]) {
+
+          RouteID internal_route_id = route_and_position.first;
+          int position_of_stop_p = route_and_position.second;
+
+          // for all stops in route starting from p
+          for (int position_of_stop_pi = position_of_stop_p;
+               position_of_stop_pi < _routes[internal_route_id].stops.size();
+               position_of_stop_pi++) {
+
+            // if (r, p') e Q for some stop p' then
+            if (q.find(make_pair(internal_route_id, position_of_stop_pi)) !=
+                q.end()) {
+              q.erase(make_pair(internal_route_id, position_of_stop_pi));
+              q.insert(make_pair(internal_route_id, position_of_stop_p));
+            } else {
+              q.insert(make_pair(internal_route_id, position_of_stop_p));
+            }
+            // q.insert(make_pair(internal_route_id, position_of_stop_p));
+          }
         }
 
-        // Loop through routes serving the stop p
-        for (const auto &route_and_position :
-             _routes_and_position_of_stop_per_stop.at(stop)) {
+        marked[p] = false;
+      }
 
-          RouteID route_id = route_and_position.first;
-          int position_in_route = route_and_position.second;
+      // Traverse each route
+      for (const auto &route_and_position : q) {
+        TripID current_trip = std::numeric_limits<int>::max();
 
-          // Iterate over each trip of the route
-          for (TripID trip_id :
-               _trips_per_route_sorted_by_departure_time[route_id]) {
-            const Trip &trip = _trips[_original_tripid_to_internal_id[trip_id]];
+        RouteID internal_route_id = route_and_position.first;
+        int position_of_stop_p = route_and_position.second;
 
-            // Check if the trip can be boarded at the current stop
-            if (trip.departure_times[position_in_route] <
-                departure_times_container[i][stop]) {
-              continue;
+        // For all stops pi of r beginning with p do
+        for (int position_of_stop_pi = position_of_stop_p;
+             position_of_stop_pi < _routes[internal_route_id].stops.size();
+             position_of_stop_pi++) {
+
+          StopID current_stop =
+              _original_stopid_to_internal_id[_routes[internal_route_id]
+                                                  .stops[position_of_stop_pi]];
+
+          if (current_trip != std::numeric_limits<int>::max()) {
+            int arrival_time =
+                _trips[current_trip].arrival_times[position_of_stop_pi];
+
+            if (arrival_time < min(earliest_arrival_time[current_stop],
+                                   earliest_arrival_time[target])) {
+
+              if (query.source == 344551 && query.target == 436274 &&
+                  current_stop == target) {
+                // We should have finished in round 2 aleady.
+                cout << "Relaxing target in round " << i
+                     << " with arrival time " << arrival_time
+                     << " at current stop " << current_stop << endl;
+              }
+
+              arrival_times_container[i][current_stop] = arrival_time;
+              earliest_arrival_time[current_stop] = arrival_time;
+
+              marked[current_stop] = true;
             }
+          }
 
-            // Update the earliest arrival times for subsequent stops in this
-            // trip
-            for (int j = position_in_route; j < trip.arrival_times.size();
-                 j++) {
-              StopID next_stop = _routes[route_id].stops[j];
-              int arrival_time_at_next_stop = trip.arrival_times[j];
+          if (current_trip == std::numeric_limits<int>::max() ||
+              earliest_arrival_time[current_stop] <
+                  _trips[current_trip].departure_times[position_of_stop_pi]) {
 
-              if (earliest_known_arrival_time[next_stop] >
-                  arrival_time_at_next_stop) {
-                earliest_known_arrival_time[next_stop] =
-                    arrival_time_at_next_stop;
-                departure_times_container[i + 1][next_stop] =
-                    arrival_time_at_next_stop +
-                    _transit_time; // Account for transfer time
-                q.insert({arrival_time_at_next_stop, next_stop});
+            for (const auto &original_trip_id :
+                 _trips_per_route_sorted_by_departure_time[internal_route_id]) {
+
+              TripID internal_trip_id =
+                  _original_tripid_to_internal_id[original_trip_id];
+
+              if (_trips[internal_trip_id]
+                      .departure_times[position_of_stop_pi] >=
+                  earliest_arrival_time[current_stop]) {
+                current_trip = internal_trip_id;
+                break;
               }
             }
           }
         }
-
-        // unmark p
-        visited[stop] = false;
       }
-    }
 
-    return Solution();
+      bool noneMarked = true;
+      for (const auto &stop : marked) {
+        if (marked[stop])
+          noneMarked = false;
+      }
+
+      if (query.source == 344551 && query.target == 436274 && i < 10) {
+        cout << "Earliest known arrival time at round " << i
+             << " with arrival time " << earliest_arrival_time[target] << endl;
+      }
+
+      if (earliest_arrival_time[target] != std::numeric_limits<int>::max()) {
+
+        bool found = false;
+        for (const auto &elem : result) {
+          if (earliest_arrival_time[target] == elem.second) {
+            found = true;
+          }
+        }
+        if (!found) {
+          result.push_back(make_pair(i, earliest_arrival_time[target]));
+        }
+      }
+
+      if (!noneMarked)
+        continue;
+    }
+    Solution sol = Solution();
+    sol.pairs_of_num_trips_and_arrival_time = result;
+    return sol;
   }
 
   void readInGTFS(string path_to_gtfs_folder) {
