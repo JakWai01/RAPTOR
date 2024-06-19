@@ -136,29 +136,19 @@ public:
                  position_of_stop_pi < _routes[internal_route_id].stops.size();
                  position_of_stop_pi++) {
 
-              // Q size 59 3228 3673
               if (q.count({internal_route_id, position_of_stop_pi}) > 0) {
                 q.erase({internal_route_id, position_of_stop_pi});
                 q.insert({internal_route_id, position_of_stop_p});
               } else {
                 q.insert({internal_route_id, position_of_stop_p});
               }
-
-              // Q size 59 9268 12992
-              // q.insert(make_pair(internal_route_id, position_of_stop_p));
-              // q[internal_route_id] = position_of_stop_p;
             }
           }
         }
-
-        // marked[p] = false;
       }
 
+      // Unmark all stops
       marked.assign(marked.size(), false);
-
-      if (query.source == 169989 && query.target == 597065 && i < 10) {
-        cout << "Q size " << q.size() << " in round " << i << endl;
-      }
 
       // Traverse each route
       for (const auto &route_and_position : q) {
@@ -182,17 +172,8 @@ public:
             int arrival_time =
                 _trips[current_trip].arrival_times[position_of_stop_pi];
 
-            // In Runde 3 sollte es den besseren Path auf 57900 geben
             if (arrival_time < min(earliest_arrival_time[current_stop],
                                    earliest_arrival_time[target])) {
-              if (query.source == 169989 && query.target == 597065 &&
-                  current_stop == target) {
-                // We should have finished in round 2 aleady.
-                cout << "Relaxing target in round " << i
-                     << " with arrival time " << arrival_time
-                     << " at current stop " << current_stop << endl;
-              }
-
               arrival_times_container[i][current_stop] = arrival_time;
               earliest_arrival_time[current_stop] = arrival_time;
 
@@ -215,11 +196,6 @@ public:
                   earliest_arrival_time[current_stop]) {
 
                 current_trip = internal_trip_id;
-                // if (query.source == 169989 && query.target == 597065 &&
-                //     current_stop == target) {
-                //   // We should have finished in round 2 aleady.
-                //   cout << "Updated current trip to "
-                // }
                 break;
               }
             }
@@ -233,13 +209,7 @@ public:
           noneMarked = false;
       }
 
-      if (query.source == 169989 && query.target == 597065 && i < 10) {
-        cout << "Earliest known arrival time at round " << i
-             << " with arrival time " << earliest_arrival_time[target] << endl;
-      }
-
       if (earliest_arrival_time[target] != std::numeric_limits<int>::max()) {
-
         bool found = false;
         for (const auto &elem : result) {
           if (earliest_arrival_time[target] == elem.second) {
