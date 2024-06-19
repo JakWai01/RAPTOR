@@ -2,11 +2,13 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <math.h>
 #include <ostream>
 #include <queue>
 #include <set>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -92,15 +94,6 @@ struct Connection {
         arrival_time(arrival_time_) {}
 };
 
-struct PairHash {
-  template <typename T1, typename T2>
-  std::size_t operator()(const std::pair<T1, T2> &pair) const {
-    auto hash1 = std::hash<T1>{}(pair.first);
-    auto hash2 = std::hash<T2>{}(pair.second);
-    return hash1 ^ (hash2 << 1); // A simple combination of the two hashes
-  }
-};
-
 class RAPTOR {
 public:
   Solution getSolutionWithRaptor(const Query &query) {
@@ -127,38 +120,44 @@ public:
     }
 
     for (int i = 1; i <= k; i++) {
-      std::unordered_set<pair<RouteID, int>, PairHash> q;
+      std::set<std::pair<int, int>> q;
 
       // for all marked stops p do
       for (size_t p = 0; p < _stops.size(); p++) {
-        if (!marked[p])
-          continue;
+        if (marked[p]) {
+          // for all routes serving p do
+          for (const auto &route_and_position :
+               _routes_and_position_of_stop_per_stop[p]) {
+            RouteID internal_route_id = route_and_position.first;
+            int position_of_stop_p = route_and_position.second;
 
-        // for all routes serving p do
-        for (const auto &route_and_position :
-             _routes_and_position_of_stop_per_stop[p]) {
+            // for all stops in route starting from p
+            for (int position_of_stop_pi = position_of_stop_p;
+                 position_of_stop_pi < _routes[internal_route_id].stops.size();
+                 position_of_stop_pi++) {
 
-          RouteID internal_route_id = route_and_position.first;
-          int position_of_stop_p = route_and_position.second;
+              // Q size 59 3228 3673
+              if (q.count({internal_route_id, position_of_stop_pi}) > 0) {
+                q.erase({internal_route_id, position_of_stop_pi});
+                q.insert({internal_route_id, position_of_stop_p});
+              } else {
+                q.insert({internal_route_id, position_of_stop_p});
+              }
 
-          // for all stops in route starting from p
-          for (int position_of_stop_pi = position_of_stop_p;
-               position_of_stop_pi < _routes[internal_route_id].stops.size();
-               position_of_stop_pi++) {
-
-            // if (r, p') e Q for some stop p' then
-            if (q.find(make_pair(internal_route_id, position_of_stop_pi)) !=
-                q.end()) {
-              q.erase(make_pair(internal_route_id, position_of_stop_pi));
-              q.insert(make_pair(internal_route_id, position_of_stop_p));
-            } else {
-              q.insert(make_pair(internal_route_id, position_of_stop_p));
+              // Q size 59 9268 12992
+              // q.insert(make_pair(internal_route_id, position_of_stop_p));
+              // q[internal_route_id] = position_of_stop_p;
             }
-            // q.insert(make_pair(internal_route_id, position_of_stop_p));
           }
         }
 
-        marked[p] = false;
+        // marked[p] = false;
+      }
+
+      marked.assign(marked.size(), false);
+
+      if (query.source == 169989 && query.target == 597065 && i < 10) {
+        cout << "Q size " << q.size() << " in round " << i << endl;
       }
 
       // Traverse each route
@@ -177,14 +176,16 @@ public:
               _original_stopid_to_internal_id[_routes[internal_route_id]
                                                   .stops[position_of_stop_pi]];
 
+          // TODO: Wird hier zu selten markiert, sodass die Folgerunden korrupt
+          // sind?
           if (current_trip != std::numeric_limits<int>::max()) {
             int arrival_time =
                 _trips[current_trip].arrival_times[position_of_stop_pi];
 
+            // In Runde 3 sollte es den besseren Path auf 57900 geben
             if (arrival_time < min(earliest_arrival_time[current_stop],
                                    earliest_arrival_time[target])) {
-
-              if (query.source == 344551 && query.target == 436274 &&
+              if (query.source == 169989 && query.target == 597065 &&
                   current_stop == target) {
                 // We should have finished in round 2 aleady.
                 cout << "Relaxing target in round " << i
@@ -212,7 +213,13 @@ public:
               if (_trips[internal_trip_id]
                       .departure_times[position_of_stop_pi] >=
                   earliest_arrival_time[current_stop]) {
+
                 current_trip = internal_trip_id;
+                // if (query.source == 169989 && query.target == 597065 &&
+                //     current_stop == target) {
+                //   // We should have finished in round 2 aleady.
+                //   cout << "Updated current trip to "
+                // }
                 break;
               }
             }
@@ -226,7 +233,7 @@ public:
           noneMarked = false;
       }
 
-      if (query.source == 344551 && query.target == 436274 && i < 10) {
+      if (query.source == 169989 && query.target == 597065 && i < 10) {
         cout << "Earliest known arrival time at round " << i
              << " with arrival time " << earliest_arrival_time[target] << endl;
       }
