@@ -126,6 +126,19 @@ public:
             RouteID internal_route_id = route_and_position.first;
             int position_of_stop_p = route_and_position.second;
 
+            if (query.source == 197339 && query.target == 265022 &&
+                internal_route_id == 601 && position_of_stop_p == 2) {
+              cout << "Stop " << p << " is served at (601, 2) in round " << i
+                   << endl;
+            }
+
+            // Es bringt uns nichts das item einfach zur Q hinzuzufügen. In der
+            // vorrunde muss auch tatsächlich eine Verbesserung stattgefunden
+            // haben.
+            if (query.source == 197339 && query.target == 265022 && i == 2) {
+              q.insert({601, 2});
+            }
+
             for (int position_of_stop_pi = position_of_stop_p;
                  position_of_stop_pi < _routes[internal_route_id].stops.size();
                  position_of_stop_pi++) {
@@ -147,15 +160,23 @@ public:
       // Traverse each route
       for (const auto &route_and_position : q) {
 
-        // Current trip for this marked stop
-        TripID current_trip = std::numeric_limits<int>::max();
-
         RouteID marked_route = route_and_position.first;
         int current_stop_index_p = route_and_position.second;
 
         StopID current_stop_p =
             _original_stopid_to_internal_id[_routes[marked_route]
                                                 .stops[current_stop_index_p]];
+
+        if (query.source == 197339 && query.target == 265022 &&
+            marked_route == 601 && i == 2) {
+          cout << "Already processing route 601 from stop " << current_stop_p
+               << " in round 2" << endl;
+        }
+
+        TripID current_trip = numeric_limits<int>::max();
+        // TripID current_trip =
+        //     et(marked_route, current_stop_p, current_stop_index_p,
+        //        earliest_arrival_time[current_stop_p]);
 
         int count = 0;
 
@@ -169,13 +190,47 @@ public:
 
           count++;
 
+          if (query.source == 197339 && query.target == 265022 &&
+              marked_route == 601 && i == 2 && current_stop == 1009) {
+            cout << "Looking at route 601 and stop 1009 in stop loop with "
+                    "current trip "
+                 << current_trip << " from stop " << current_stop_p << endl;
+            for (const auto &trips :
+                 _trips_per_route_sorted_by_departure_time[marked_route]) {
+              TripID internal_trip_id = _original_tripid_to_internal_id[trips];
+
+              // if (_trips[internal_trip_id]
+              //         .departure_times[position_of_stop_pi] >=
+              //     previous_earliest_arrival_time) {
+              //   return internal_trip_id;
+              // }
+
+              cout << "Internal trip ID " << internal_trip_id
+                   << " with departure time "
+                   << _trips[internal_trip_id]
+                          .departure_times[current_stop_index_pi]
+                   << " but previous earliest departure time "
+                   << earliest_arrival_time[current_stop] << " for stop "
+                   << current_stop_index_pi << endl;
+            }
+          }
+
           // t != _|_
           if (current_trip != std::numeric_limits<int>::max()) {
 
             int new_arrival_time =
                 _trips[current_trip].arrival_times[current_stop_index_pi];
+
+            // We haven't seen this node so far, so this is still at infinity
             int best_arrival_time = earliest_arrival_time[current_stop];
 
+            if (query.source == 197339 && query.target == 265022 &&
+                marked_route == 601 && i == 2) {
+              cout << "Attempting to relax 601 from " << current_stop
+                   << " in round " << i << " with new arrival time "
+                   << new_arrival_time << " and best time so far "
+                   << best_arrival_time << endl;
+            }
             // Für diesen Stopp haben wir in dieser Runde eine bessere Reisezeit
             // gefunden und markieren ihn daher zur Betrachtung für die nächste
             // Runde
@@ -183,23 +238,41 @@ public:
                 min(best_arrival_time, earliest_arrival_time[target])) {
               earliest_arrival_time[current_stop] = new_arrival_time;
               marked[current_stop] = true;
+
+              if (query.source == 197339 && query.target == 265022 &&
+                  current_stop == target) {
+                cout << "Relaxing target on route " << marked_route
+                     << " in round " << i << " with new arrival time "
+                     << new_arrival_time << " on trip " << current_trip << endl;
+              }
             }
           }
 
           int previous_earliest_arrival_time =
               earliest_arrival_time[current_stop];
 
-          // Hier kommt immernoch unendlich raus. Das wird der Fehler sein
-          int earliest_trip =
+          int earliest_reachable_trip =
               et(marked_route, current_stop, current_stop_index_pi,
                  previous_earliest_arrival_time);
 
           int earliest_trip_stop_time =
-              _trips[earliest_trip].departure_times[current_stop_index_pi];
+              _trips[earliest_reachable_trip]
+                  .departure_times[current_stop_index_pi];
 
-          if (earliest_trip != std::numeric_limits<int>::max() &&
+          // Da wir hier auch mit neuen Nodes ankommen, kann es doch gut sein,
+          // dass die previous_earliest_arrival_time noch nicht gesetzt wurde
+          // oder?
+          if (earliest_reachable_trip != std::numeric_limits<int>::max() &&
               previous_earliest_arrival_time <= earliest_trip_stop_time) {
-            current_trip = earliest_trip;
+
+            if (query.source == 197339 && query.target == 265022 &&
+                current_stop == target && earliest_reachable_trip == 876) {
+              cout << "Setting earliest trip to 876 with arrival time "
+                   << earliest_trip_stop_time << " from stop " << current_stop_p
+                   << " to " << current_stop << " in round " << i
+                   << " on route " << marked_route << endl;
+            }
+            current_trip = earliest_reachable_trip;
           }
         }
       }
@@ -238,9 +311,8 @@ public:
       TripID internal_trip_id =
           _original_tripid_to_internal_id[original_trip_id];
 
-      if (previous_earliest_arrival_time == std::numeric_limits<int>::max() ||
-          _trips[internal_trip_id].departure_times[position_of_stop_pi] >=
-              previous_earliest_arrival_time) {
+      if (_trips[internal_trip_id].departure_times[position_of_stop_pi] >=
+          previous_earliest_arrival_time) {
         return internal_trip_id;
       }
     }
