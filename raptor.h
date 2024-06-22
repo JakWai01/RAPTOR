@@ -99,7 +99,7 @@ public:
   Solution getSolutionWithRaptor(const Query &query) {
     StopID source = _original_stopid_to_internal_id[query.source];
     StopID target = _original_stopid_to_internal_id[query.target];
-    int departure_time = query.departure_time;
+    int departure_time = query.departure_time - _transit_time;
 
     int k = _stops.size(); // maximum number of trips
 
@@ -108,18 +108,25 @@ public:
                                       std::numeric_limits<int>::max());
     vector<bool> marked(_stops.size(), false);
 
-    vector<vector<int>> arrival_times_container(
-        k, vector<int>(_stops.size(), std::numeric_limits<int>::max()));
+    vector<vector<int>> arrival_times_container;
+    arrival_times_container.push_back(
+        vector<int>(_stops.size(), std::numeric_limits<int>::max()));
 
     earliest_arrival_time[source] = departure_time;
     arrival_times_container[0][source] = departure_time;
     marked[source] = true; // Mark the source stop as visited
 
     if (source == target) {
-      result.push_back(make_pair(0, departure_time));
+      result.push_back(make_pair(0, query.departure_time));
+      Solution sol = Solution();
+      sol.pairs_of_num_trips_and_arrival_time = result;
+      return sol;
     }
 
     for (int i = 1; i <= k; i++) {
+      arrival_times_container.push_back(
+          vector<int>(_stops.size(), std::numeric_limits<int>::max()));
+
       std::set<std::pair<int, int>> q;
 
       for (size_t p = 0; p < _stops.size(); p++) {
@@ -157,11 +164,12 @@ public:
         RouteID marked_route = route_and_position.first;
         int current_stop_index_p = route_and_position.second;
 
-        StopID current_stop_p =
-            _original_stopid_to_internal_id[_routes[marked_route]
-                                                .stops[current_stop_index_p]];
+        // StopID current_stop_p =
+        //     _original_stopid_to_internal_id[_routes[marked_route]
+        //                                         .stops[current_stop_index_p]];
 
-        TripID current_trip = numeric_limits<int>::max();
+        TripID current_trip_index_t =
+            _trips_per_route_sorted_by_departure_time[marked_route].size();
 
         // Iterate over all stops after current stop within the current route
         for (int current_stop_index_pi = current_stop_index_p;
@@ -172,10 +180,14 @@ public:
               [_routes[marked_route].stops[current_stop_index_pi]];
 
           // t != _|_
-          if (current_trip != std::numeric_limits<int>::max()) {
+          if (current_trip_index_t !=
+              _trips_per_route_sorted_by_departure_time[marked_route].size()) {
 
             int arrival_time =
-                _trips[current_trip].arrival_times[current_stop_index_pi];
+                _trips[_original_tripid_to_internal_id
+                           [_trips_per_route_sorted_by_departure_time
+                                [marked_route][current_trip_index_t]]]
+                    .arrival_times[current_stop_index_pi];
 
             if (arrival_time < min(earliest_arrival_time[current_stop],
                                    earliest_arrival_time[target])) {
@@ -186,20 +198,15 @@ public:
             }
           }
 
-          int previous_earliest_arrival_time =
-              arrival_times_container[i - 1][current_stop];
-
-          int earliest_reachable_trip =
-              et(marked_route, current_stop, current_stop_index_pi,
-                 previous_earliest_arrival_time);
-
-          int earliest_trip_stop_time =
-              _trips[earliest_reachable_trip]
-                  .departure_times[current_stop_index_pi];
-
-          if (earliest_reachable_trip != std::numeric_limits<int>::max() &&
-              previous_earliest_arrival_time <= earliest_trip_stop_time) {
-            current_trip = earliest_reachable_trip;
+          while (current_trip_index_t > 0 &&
+                 arrival_times_container[i - 1][current_stop] !=
+                     std::numeric_limits<int>::max() &&
+                 arrival_times_container[i - 1][current_stop] + _transit_time <=
+                     _trips[_original_tripid_to_internal_id
+                                [_trips_per_route_sorted_by_departure_time
+                                     [marked_route][current_trip_index_t - 1]]]
+                         .departure_times[current_stop_index_pi]) {
+            current_trip_index_t -= 1;
           }
         }
       }
@@ -219,22 +226,6 @@ public:
     Solution sol = Solution();
     sol.pairs_of_num_trips_and_arrival_time = result;
     return sol;
-  }
-
-  TripID et(RouteID internal_route_id, StopID current_stop,
-            int position_of_stop_pi, int previous_earliest_arrival_time) {
-    for (const auto &original_trip_id :
-         _trips_per_route_sorted_by_departure_time[internal_route_id]) {
-
-      TripID internal_trip_id =
-          _original_tripid_to_internal_id[original_trip_id];
-
-      if (_trips[internal_trip_id].departure_times[position_of_stop_pi] >=
-          previous_earliest_arrival_time) {
-        return internal_trip_id;
-      }
-    }
-    return std::numeric_limits<int>::max();
   }
 
   void readInGTFS(string path_to_gtfs_folder) {
